@@ -1,5 +1,5 @@
 """
-An implementation of the speaker embedding model from paper:
+An implementation of the speaker embedding model (and other required functionality) from paper:
 "ECAPA-TDNN: Emphasized Channel Attention, Propagation and Aggregation in TDNN Based Speaker Verification"
 (https://arxiv.org/abs/2005.07143).
 Based partially on work of SpeechBrain, Mirco Ravanelli, Hwidong Na, Joowhan Song and others.
@@ -10,7 +10,6 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 
 logger = logging.getLogger(__name__)
 

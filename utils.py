@@ -2,6 +2,9 @@ import os
 import argparse
 import torch
 import logging
+import pickle
+import time
+import csv
 
 logger = logging.getLogger(__name__)
 
@@ -198,3 +201,68 @@ def _convert_to_yaml(overrides):
             yaml_string += " " + arg
 
     return yaml_string.strip()
+
+
+def save_pkl(obj, file):
+    """Save an object in pkl format.
+
+    Arguments
+    ---------
+    obj : object
+        Object to save in pkl format
+    file : str
+        Path to the output file
+    Example
+    -------
+    >>> tmpfile = os.path.join(getfixture('tmpdir'), "example.pkl")
+    >>> save_pkl([1, 2, 3, 4, 5], tmpfile)
+    >>> load_pkl(tmpfile)
+    [1, 2, 3, 4, 5]
+    """
+    with open(file, "wb") as f:
+        pickle.dump(obj, f)
+
+
+def load_pkl(file):
+    """Loads a pkl file.
+
+    For an example, see `save_pkl`.
+
+    Arguments
+    ---------
+    file : str
+        Path to the input pkl file.
+
+    Returns
+    -------
+    The loaded object.
+    """
+
+    # Deals with the situation where two processes are trying
+    # to access the same label dictionary by creating a lock
+    count = 100
+    while count > 0:
+        if os.path.isfile(file + ".lock"):
+            time.sleep(1)
+            count -= 1
+        else:
+            break
+
+    try:
+        open(file + ".lock", "w").close()
+        with open(file, "rb") as f:
+            return pickle.load(f)
+    finally:
+        if os.path.isfile(file + ".lock"):
+            os.remove(file + ".lock")
+
+
+def write_csv_file(csv_file, csv_output):
+    with open(csv_file, mode="w") as csv_f:
+        csv_writer = csv.writer(
+            csv_f, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL
+        )
+        for line in csv_output:
+            csv_writer.writerow(line)
+
+    logger.info(f"File created: {csv_file}")

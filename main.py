@@ -1,7 +1,7 @@
 import logging
 import sys
 import torch
-from arg_helper import parse_arguments
+from utils import parse_arguments
 from hyperpyyaml import load_hyperpyyaml
 
 logger = logging.getLogger(__name__)
