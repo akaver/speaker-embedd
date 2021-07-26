@@ -1,16 +1,35 @@
-# This is a sample Python script.
+import logging
+import sys
+import torch
+from arg_helper import parse_arguments
+from hyperpyyaml import load_hyperpyyaml
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+logger = logging.getLogger(__name__)
 
 
-# Press the green button in the gutter to run the script.
+def main():
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+    logger.info("Starting...")
+
+    # enable the inbuilt cudnn auto-tuner
+    torch.backends.cudnn.benchmark = True
+
+    # CLI:
+    hparams_file, run_opts, overrides = parse_arguments(sys.argv[1:])
+
+    with open(hparams_file) as fin:
+        hparam_str = fin.read()
+
+    if 'yaml' in run_opts:
+        for yaml_file in run_opts['yaml']:
+            logging.info(f"Loading additional yaml file: {yaml_file[0]}")
+            with open(yaml_file[0]) as fin:
+                hparam_str = hparam_str + "\n" + fin.read();
+
+    hparams = load_hyperpyyaml(hparam_str, overrides)
+
+    logging.info(f"Params: {hparams}")
+
+
 if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    main()

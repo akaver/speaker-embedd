@@ -4,6 +4,18 @@ model/
 lightning_logs/
 MNIST/
 
+### osx ###
+.DS_Store?
+ehthumbs.db
+Icon?
+Thumbs.db
+*.DS_Store
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template
 # Byte-compiled / optimized / DLL files

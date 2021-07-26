@@ -1,0 +1,42 @@
+seed: 1986
+
+output_folder: !ref /data/results/ecapa_tdnn/<seed>
+save_folder: !ref <output_folder>/save
+
+# generated data splits, checkpoints, etc
+data_folder: /data/voxdata
+
+# Folders for VoxCeleb1 and VoxCeleb2. Data needs to be pre-downloaded and converted into wav
+data_folder_voxceleb1: /data/voxceleb1
+data_folder_voxceleb2: /data/voxceleb2
+
+test_pairs_in_file: /data/voxceleb1/list_test_all2.txt
+# random verification pairs to use from input file. Remove/set to None for full
+test_pairs_quantity: 1000
+test_pairs_out_file: !ref <data_folder>/verification.txt
+
+verification_file: !ref <data_folder>/verification.txt
+
+# how should data be split between train/valid
+split_ratio: 90
+
+train_data: !ref <data_folder>/train.csv
+valid_data: !ref <data_folder>/valid.csv
+
+# Data files for verification after training. Speakers here will not be included in train/valid split
+# enrol and test utterances data is created based on verification_file
+enrol_data: !ref <data_folder>/enrol.csv
+test_data: !ref <data_folder>/test.csv
+
+# Folder to extract data augmentation files
+rir_folder: !ref /data/rirs_noises
+
+# Feature parameters
+n_mels: 80
+left_frames: 0
+right_frames: 0
+deltas: False
+
+sample_rate: 16000
+sentence_len: 3.0 # in seconds
+
