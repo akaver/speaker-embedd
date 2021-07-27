@@ -2,31 +2,33 @@ skip_prep: False
 
 seed: 1986
 
+base_folder: /mnt/ml-stuff2 # /data in docker
+
 # generated data splits, checkpoints, etc
-data_folder: /data/voxdata
+data_folder: !ref <base_folder>/voxdata
 
 # voxceleb data folders will be scanned and all the found waves, id, lengths saved here
 # saves time on future runs
 voxceleb_file_info: !ref <data_folder>/file_info.pkl
 
-output_folder: !ref /data/voxdata/results/<seed>
+output_folder: !ref <data_folder>/results/<seed>
 save_folder: !ref <output_folder>/save
 
 
 # Folders for VoxCeleb1 and VoxCeleb2. Data needs to be pre-downloaded and converted into wav
-data_folder_voxceleb1: /data/voxceleb1
-data_folder_voxceleb2: /data/voxceleb2
+data_folder_voxceleb1: !ref <base_folder>/voxceleb1
+data_folder_voxceleb2: !ref <base_folder>/voxceleb2
 
 splits: [train, dev, test]
 
-test_pairs_in_file: /data/voxceleb1/list_test_all2.txt
+test_pairs_in_file: !ref <base_folder>/voxceleb1/list_test_all2.txt
 # random verification pairs to use from input file. Remove/set to None for full
 test_pairs_out_file: !ref <data_folder>/verification.txt
 
 verification_file: !ref <data_folder>/verification.txt
 
 # number of unique speakers to use (before split)
-speaker_quantity: 100
+speaker_quantity: 20
 
 # number of random test pairs to use from verification_file
 test_pairs_quantity: 100
@@ -43,14 +45,20 @@ enrol_data: !ref <data_folder>/enrol.csv
 test_data: !ref <data_folder>/test.csv
 
 # Folder to extract data augmentation files
-rir_folder: !ref /data/rirs_noises
+rir_folder: !ref <base_folder>/rirs_noises
 
 # Feature parameters
 n_mels: 80
 left_frames: 0
 right_frames: 0
-deltas: False
+deltas: False # delta and delta-delta
 
 sample_rate: 16000
 sentence_len: 3.0 # in seconds
 amp_th: 0.0005 # 5e-04
+
+# dataloader options
+batch_size: 32
+number_of_epochs: 20
+num_workers: 6
+random_chunk: True # istead of fixed splits from every audio sample, pick random slice of correct len

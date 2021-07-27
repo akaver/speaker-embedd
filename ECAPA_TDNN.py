@@ -10,6 +10,10 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import TypeVar, Generic, Iterable, Iterator, Sequence, List, Optional, Tuple
+import bisect
+import random
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +180,7 @@ class Linear(torch.nn.Module):
         return wx
 
 
-class Conv1d(nn.Module):
+class _Conv1d(nn.Module):
     """This function implements 1d convolution.
 
     Arguments
@@ -353,7 +357,12 @@ class Conv1d(nn.Module):
         return in_channels
 
 
-class BatchNorm1d(nn.Module):
+class Conv1d(_Conv1d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(skip_transpose=True, *args, **kwargs)
+
+
+class _BatchNorm1d(nn.Module):
     """Applies 1d batch normalization to the input tensor.
 
     Arguments
@@ -444,6 +453,11 @@ class BatchNorm1d(nn.Module):
         return x_n
 
 
+class BatchNorm1d(_BatchNorm1d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(skip_transpose=True, *args, **kwargs)
+
+
 class TDNNBlock(nn.Module):
     """An implementation of TDNN.
 
@@ -488,7 +502,11 @@ class TDNNBlock(nn.Module):
         self.norm = BatchNorm1d(input_size=out_channels)
 
     def forward(self, x):
-        return self.norm(self.activation(self.conv(x)))
+        conv = self.conv(x)
+        activation = self.activation(conv)
+        norm = self.norm(activation)
+        return norm
+        # return self.norm(self.activation(self.conv(x)))
 
 
 class Res2NetBlock(torch.nn.Module):
@@ -1903,3 +1921,416 @@ class ContextWindow(torch.nn.Module):
         cw_x = cw_x.transpose(1, 2)
 
         return cw_x
+
+
+class InputNormalization(torch.nn.Module):
+    """Performs mean and variance normalization of the input tensor.
+
+    Arguments
+    ---------
+    mean_norm : True
+         If True, the mean will be normalized.
+    std_norm : True
+         If True, the standard deviation will be normalized.
+    norm_type : str
+         It defines how the statistics are computed ('sentence' computes them
+         at sentence level, 'batch' at batch level, 'speaker' at speaker
+         level, while global computes a single normalization vector for all
+         the sentences in the dataset). Speaker and global statistics are
+         computed with a moving average approach.
+    avg_factor : float
+         It can be used to manually set the weighting factor between
+         current statistics and accumulated ones.
+
+    Example
+    -------
+    >>> import torch
+    >>> norm = InputNormalization()
+    >>> inputs = torch.randn([10, 101, 20])
+    >>> inp_len = torch.ones([10])
+    >>> features = norm(inputs, inp_len)
+    """
+
+    from typing import Dict
+
+    spk_dict_mean: Dict[int, torch.Tensor]
+    spk_dict_std: Dict[int, torch.Tensor]
+    spk_dict_count: Dict[int, int]
+
+    def __init__(
+        self,
+        mean_norm=True,
+        std_norm=True,
+        norm_type="global",
+        avg_factor=None,
+        requires_grad=False,
+        update_until_epoch=3,
+    ):
+        super().__init__()
+        self.mean_norm = mean_norm
+        self.std_norm = std_norm
+        self.norm_type = norm_type
+        self.avg_factor = avg_factor
+        self.requires_grad = requires_grad
+        self.glob_mean = torch.tensor([0])
+        self.glob_std = torch.tensor([0])
+        self.spk_dict_mean = {}
+        self.spk_dict_std = {}
+        self.spk_dict_count = {}
+        self.weight = 1.0
+        self.count = 0
+        self.eps = 1e-10
+        self.update_until_epoch = update_until_epoch
+
+    def forward(self, x, lengths, spk_ids=torch.tensor([]), epoch=0):
+        """Returns the tensor with the surrounding context.
+
+        Arguments
+        ---------
+        x : tensor
+            A batch of tensors.
+        lengths : tensor
+            A batch of tensors containing the relative length of each
+            sentence (e.g, [0.7, 0.9, 1.0]). It is used to avoid
+            computing stats on zero-padded steps.
+        spk_ids : tensor containing the ids of each speaker (e.g, [0 10 6]).
+            It is used to perform per-speaker normalization when
+            norm_type='speaker'.
+        """
+        N_batches = x.shape[0]
+
+        current_means = []
+        current_stds = []
+
+        for snt_id in range(N_batches):
+
+            # Avoiding padded time steps
+            actual_size = torch.round(lengths[snt_id] * x.shape[1]).int()
+
+            # computing statistics
+            current_mean, current_std = self._compute_current_stats(
+                x[snt_id, 0:actual_size, ...]
+            )
+
+            current_means.append(current_mean)
+            current_stds.append(current_std)
+
+            if self.norm_type == "sentence":
+
+                x[snt_id] = (x[snt_id] - current_mean.data) / current_std.data
+
+            if self.norm_type == "speaker":
+
+                spk_id = int(spk_ids[snt_id][0])
+
+                if spk_id not in self.spk_dict_mean:
+
+                    # Initialization of the dictionary
+                    self.spk_dict_mean[spk_id] = current_mean
+                    self.spk_dict_std[spk_id] = current_std
+                    self.spk_dict_count[spk_id] = 1
+
+                else:
+                    self.spk_dict_count[spk_id] = (
+                        self.spk_dict_count[spk_id] + 1
+                    )
+
+                    if self.avg_factor is None:
+                        self.weight = 1 / self.spk_dict_count[spk_id]
+                    else:
+                        self.weight = self.avg_factor
+
+                    self.spk_dict_mean[spk_id] = (
+                        1 - self.weight
+                    ) * self.spk_dict_mean[spk_id] + self.weight * current_mean
+                    self.spk_dict_std[spk_id] = (
+                        1 - self.weight
+                    ) * self.spk_dict_std[spk_id] + self.weight * current_std
+
+                    self.spk_dict_mean[spk_id].detach()
+                    self.spk_dict_std[spk_id].detach()
+
+                x[snt_id] = (
+                    x[snt_id] - self.spk_dict_mean[spk_id].data
+                ) / self.spk_dict_std[spk_id].data
+
+        if self.norm_type == "batch" or self.norm_type == "global":
+            current_mean = torch.mean(torch.stack(current_means), dim=0)
+            current_std = torch.mean(torch.stack(current_stds), dim=0)
+
+            if self.norm_type == "batch":
+                x = (x - current_mean.data) / (current_std.data)
+
+            if self.norm_type == "global":
+
+                if self.count == 0:
+                    self.glob_mean = current_mean
+                    self.glob_std = current_std
+
+                elif epoch < self.update_until_epoch:
+                    if self.avg_factor is None:
+                        self.weight = 1 / (self.count + 1)
+                    else:
+                        self.weight = self.avg_factor
+
+                    self.glob_mean = (
+                        1 - self.weight
+                    ) * self.glob_mean + self.weight * current_mean
+
+                    self.glob_std = (
+                        1 - self.weight
+                    ) * self.glob_std + self.weight * current_std
+
+                self.glob_mean.detach()
+                self.glob_std.detach()
+
+                x = (x - self.glob_mean.data) / (self.glob_std.data)
+
+        self.count = self.count + 1
+
+        return x
+
+    def _compute_current_stats(self, x):
+        """Returns the tensor with the surrounding context.
+
+        Arguments
+        ---------
+        x : tensor
+            A batch of tensors.
+        """
+        # Compute current mean
+        if self.mean_norm:
+            current_mean = torch.mean(x, dim=0).detach().data
+        else:
+            current_mean = torch.tensor([0.0], device=x.device)
+
+        # Compute current std
+        if self.std_norm:
+            current_std = torch.std(x, dim=0).detach().data
+        else:
+            current_std = torch.tensor([1.0], device=x.device)
+
+        # Improving numerical stability of std
+        current_std = torch.max(
+            current_std, self.eps * torch.ones_like(current_std)
+        )
+
+        return current_mean, current_std
+
+    def _statistics_dict(self):
+        """Fills the dictionary containing the normalization statistics.
+        """
+        state = {}
+        state["count"] = self.count
+        state["glob_mean"] = self.glob_mean
+        state["glob_std"] = self.glob_std
+        state["spk_dict_mean"] = self.spk_dict_mean
+        state["spk_dict_std"] = self.spk_dict_std
+        state["spk_dict_count"] = self.spk_dict_count
+
+        return state
+
+    def _load_statistics_dict(self, state):
+        """Loads the dictionary containing the statistics.
+
+        Arguments
+        ---------
+        state : dict
+            A dictionary containing the normalization statistics.
+        """
+        self.count = state["count"]
+        if isinstance(state["glob_mean"], int):
+            self.glob_mean = state["glob_mean"]
+            self.glob_std = state["glob_std"]
+        else:
+            self.glob_mean = state["glob_mean"]  # .to(self.device_inp)
+            self.glob_std = state["glob_std"]  # .to(self.device_inp)
+
+        # Loading the spk_dict_mean in the right device
+        self.spk_dict_mean = {}
+        for spk in state["spk_dict_mean"]:
+            self.spk_dict_mean[spk] = state["spk_dict_mean"][spk].to(
+                self.device_inp
+            )
+
+        # Loading the spk_dict_std in the right device
+        self.spk_dict_std = {}
+        for spk in state["spk_dict_std"]:
+            self.spk_dict_std[spk] = state["spk_dict_std"][spk].to(
+                self.device_inp
+            )
+
+        self.spk_dict_count = state["spk_dict_count"]
+
+        return state
+
+    def to(self, device):
+        """Puts the needed tensors in the right device.
+        """
+        self = super(InputNormalization, self).to(device)
+        self.glob_mean = self.glob_mean.to(device)
+        self.glob_std = self.glob_std.to(device)
+        for spk in self.spk_dict_mean:
+            self.spk_dict_mean[spk] = self.spk_dict_mean[spk].to(device)
+            self.spk_dict_std[spk] = self.spk_dict_std[spk].to(device)
+        return self
+
+    def _save(self, path):
+        """Save statistic dictionary.
+
+        Arguments
+        ---------
+        path : str
+            A path where to save the dictionary.
+        """
+        stats = self._statistics_dict()
+        torch.save(stats, path)
+
+    def _load(self, path, end_of_epoch=False, device=None):
+        """Load statistic dictionary.
+
+        Arguments
+        ---------
+        path : str
+            The path of the statistic dictionary
+        device : str, None
+            Passed to torch.load(..., map_location=device)
+        """
+        del end_of_epoch  # Unused here.
+        stats = torch.load(path, map_location=device)
+        self._load_statistics_dict(stats)
+
+def classification_error(
+    probabilities, targets, length=None, allowed_len_diff=3, reduction="mean"
+):
+    """Computes the classification error at frame or batch level.
+
+    Arguments
+    ---------
+    probabilities : torch.Tensor
+        The posterior probabilities of shape
+        [batch, prob] or [batch, frames, prob]
+    targets : torch.Tensor
+        The targets, of shape [batch] or [batch, frames]
+    length : torch.Tensor
+        Length of each utterance, if frame-level loss is desired.
+    allowed_len_diff : int
+        Length difference that will be tolerated before raising an exception.
+    reduction : str
+        Options are 'mean', 'batch', 'batchmean', 'sum'.
+        See pytorch for 'mean', 'sum'. The 'batch' option returns
+        one loss per item in the batch, 'batchmean' returns sum / batch size.
+
+    Example
+    -------
+    >>> probs = torch.tensor([[[0.9, 0.1], [0.1, 0.9]]])
+    >>> classification_error(probs, torch.tensor([1, 1]))
+    tensor(0.5000)
+    """
+    if len(probabilities.shape) == 3 and len(targets.shape) == 2:
+        probabilities, targets = truncate(
+            probabilities, targets, allowed_len_diff
+        )
+
+    def error(predictions, targets):
+        predictions = torch.argmax(probabilities, dim=-1)
+        return (predictions != targets).float()
+
+    return compute_masked_loss(
+        error, probabilities, targets.long(), length, reduction=reduction
+    )
+
+
+def truncate(predictions, targets, allowed_len_diff=3):
+    """Ensure that predictions and targets are the same length.
+
+    Arguments
+    ---------
+    predictions : torch.Tensor
+        First tensor for checking length.
+    targets : torch.Tensor
+        Second tensor for checking length.
+    allowed_len_diff : int
+        Length difference that will be tolerated before raising an exception.
+    """
+    len_diff = predictions.shape[1] - targets.shape[1]
+    if len_diff == 0:
+        return predictions, targets
+    elif abs(len_diff) > allowed_len_diff:
+        raise ValueError(
+            "Predictions and targets should be same length, but got %s and "
+            "%s respectively." % (predictions.shape[1], targets.shape[1])
+        )
+    elif len_diff < 0:
+        return predictions, targets[:, : predictions.shape[1]]
+    else:
+        return predictions[:, : targets.shape[1]], targets
+
+
+
+def compute_masked_loss(
+    loss_fn,
+    predictions,
+    targets,
+    length=None,
+    label_smoothing=0.0,
+    reduction="mean",
+):
+    """Compute the true average loss of a set of waveforms of unequal length.
+
+    Arguments
+    ---------
+    loss_fn : function
+        A function for computing the loss taking just predictions and targets.
+        Should return all the losses, not a reduction (e.g. reduction="none").
+    predictions : torch.Tensor
+        First argument to loss function.
+    targets : torch.Tensor
+        Second argument to loss function.
+    length : torch.Tensor
+        Length of each utterance to compute mask. If None, global average is
+        computed and returned.
+    label_smoothing: float
+        The proportion of label smoothing. Should only be used for NLL loss.
+        Ref: Regularizing Neural Networks by Penalizing Confident Output
+        Distributions. https://arxiv.org/abs/1701.06548
+    reduction : str
+        One of 'mean', 'batch', 'batchmean', 'none' where 'mean' returns a
+        single value and 'batch' returns one per item in the batch and
+        'batchmean' is sum / batch_size and 'none' returns all.
+    """
+    mask = torch.ones_like(targets)
+    if length is not None:
+        length_mask = length_to_mask(
+            length * targets.shape[1], max_len=targets.shape[1],
+        )
+
+        # Handle any dimensionality of input
+        while len(length_mask.shape) < len(mask.shape):
+            length_mask = length_mask.unsqueeze(-1)
+        length_mask = length_mask.type(mask.dtype)
+        mask *= length_mask
+
+    # Compute, then reduce loss
+    loss = loss_fn(predictions, targets) * mask
+    N = loss.size(0)
+    if reduction == "mean":
+        loss = loss.sum() / torch.sum(mask)
+    elif reduction == "batchmean":
+        loss = loss.sum() / N
+    elif reduction == "batch":
+        loss = loss.reshape(N, -1).sum(1) / mask.reshape(N, -1).sum(1)
+
+    if label_smoothing == 0:
+        return loss
+    else:
+        loss_reg = torch.mean(predictions, dim=1) * mask
+        if reduction == "mean":
+            loss_reg = torch.sum(loss_reg) / torch.sum(mask)
+        elif reduction == "batchmean":
+            loss_reg = torch.sum(loss_reg) / targets.shape[0]
+        elif reduction == "batch":
+            loss_reg = loss_reg.sum(1) / mask.sum(1)
+
+        return -label_smoothing * loss_reg + (1 - label_smoothing) * loss
+
