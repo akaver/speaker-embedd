@@ -23,8 +23,11 @@ class SpeakerDataModule(pl.LightningDataModule):
         self.num_workers = hparams["num_workers"]
 
         # assign to use in dataloaders
+
         self.train_dataset = VoxCeleb2Dataset(hparams, hparams["train_data"])
         self.val_dataset = VoxCeleb2Dataset(hparams, hparams["valid_data"])
+        self.test_dataset = VoxCeleb2Dataset(hparams, hparams["test_data"])
+        self.enrol_dataset = VoxCeleb2Dataset(hparams, hparams["enrol_data"])
 
     """
     # Use this method to do things that might write to disk or that need to be done only from a single process in distributed settings.
@@ -42,6 +45,14 @@ class SpeakerDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True,
+                          persistent_workers=True)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True,
+                          persistent_workers=True)
+
+    def enrol_dataloader(self):
+        return DataLoader(self.enrol_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True,
                           persistent_workers=True)
 
     """
@@ -76,6 +87,8 @@ class EcapaTdnnModule(pl.LightningModule):
         # naming conflict?
         self._hparams = hparams
 
+        self.out_neurons = out_neurons
+
         # embedding size
         lin_neurons = 192
 
@@ -89,11 +102,7 @@ class EcapaTdnnModule(pl.LightningModule):
         self.net = ECAPA_TDNN.ECAPA_TDNN(input_size=int(hparams["n_mels"]), lin_neurons=lin_neurons)
 
         # embedding in, speaker count out
-        if out_neurons is not None:
-            self.classifier = ECAPA_TDNN.Classifier(lin_neurons, out_neurons=out_neurons)
-        else:
-            self.classifier = None
-
+        self.classifier = ECAPA_TDNN.Classifier(lin_neurons, out_neurons=out_neurons)
 
         self.compute_cost = ECAPA_TDNN.LogSoftmaxWrapper(loss_fn=ECAPA_TDNN.AdditiveAngularMargin(margin=0.2, scale=30))
         # not used
@@ -131,12 +140,12 @@ class EcapaTdnnModule(pl.LightningModule):
 
         embedding = self.net(features_normalized)
 
-        # do we want to get just embeddings?
-        if self.classifier is None:
-            return embedding
-
         prediction = self.classifier(embedding)
-        return prediction
+        return prediction, embedding
+
+    def get_embeddings(self, wavs):
+        _, embeddings = self.forward(wavs)
+        return embeddings
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001, weight_decay=0.000002)
@@ -144,7 +153,7 @@ class EcapaTdnnModule(pl.LightningModule):
         pass
 
     def model_step(self, batch, batch_idx):
-        inputs, labels = batch
+        inputs, labels, ids = batch
         labels_predicted = self(inputs)  # calls forward
         loss = self.compute_cost(labels_predicted, labels)
 

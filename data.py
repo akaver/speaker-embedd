@@ -52,7 +52,7 @@ class VoxCeleb2Dataset(torch.utils.data.Dataset):
         # use indexes instead - hot encode them in loss fn - label count from here needs to match final output neurons
         y = torch.tensor([self.labels.index(item["spk_id"])])
 
-        res = wav_tensor,  y
+        res = wav_tensor,  y, self.data[index]
         return res
 
     def __len__(self):
