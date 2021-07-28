@@ -87,8 +87,14 @@ class EcapaTdnnModule(pl.LightningModule):
         self.mean_var_norm = ECAPA_TDNN.InputNormalization(norm_type="sentence", std_norm=False)
 
         self.net = ECAPA_TDNN.ECAPA_TDNN(input_size=int(hparams["n_mels"]), lin_neurons=lin_neurons)
+
         # embedding in, speaker count out
-        self.classifier = ECAPA_TDNN.Classifier(lin_neurons, out_neurons=out_neurons)
+        if out_neurons is not None:
+            self.classifier = ECAPA_TDNN.Classifier(lin_neurons, out_neurons=out_neurons)
+        else:
+            self.classifier = None
+
+
         self.compute_cost = ECAPA_TDNN.LogSoftmaxWrapper(loss_fn=ECAPA_TDNN.AdditiveAngularMargin(margin=0.2, scale=30))
         # not used
         self.compute_error = ECAPA_TDNN.classification_error
@@ -124,6 +130,10 @@ class EcapaTdnnModule(pl.LightningModule):
         features_normalized = self.mean_var_norm(features, lens)
 
         embedding = self.net(features_normalized)
+
+        # do we want to get just embeddings?
+        if self.classifier is None:
+            return embedding
 
         prediction = self.classifier(embedding)
         return prediction
@@ -206,8 +216,8 @@ def main():
     model = EcapaTdnnModule(hparams, out_neurons=data.get_label_count())
 
     trainer = pl.Trainer(
-        default_root_dir=hparams["data_folder"] + '/lighning_logs',
-        gpus=1,
+        default_root_dir=hparams["data_folder"],
+            gpus=1,
         max_epochs=hparams["number_of_epochs"],
         # num_sanity_val_steps=0
         # accelerator='ddp',

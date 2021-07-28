@@ -1,0 +1,2 @@
+# model to use for verifying
+verify_model: !ref <output_folder>/lightning_logs/version_39/checkpoints/epoch=19-step=99779.ckpt
