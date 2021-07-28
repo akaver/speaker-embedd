@@ -206,10 +206,10 @@ def main():
     model = EcapaTdnnModule(hparams, out_neurons=data.get_label_count())
 
     trainer = pl.Trainer(
-        default_root_dir= hparams["data_folder"] + '/lighning_logs',
+        default_root_dir=hparams["data_folder"] + '/lighning_logs',
         gpus=1,
-        max_epochs=20,
-        num_sanity_val_steps=0
+        max_epochs=hparams["number_of_epochs"],
+        # num_sanity_val_steps=0
         # accelerator='ddp',
         # plugins=DDPPlugin(find_unused_parameters=False)
     )
