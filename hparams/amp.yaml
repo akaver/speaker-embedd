@@ -57,7 +57,7 @@ amp_th: 0.0005 # 5e-04
 
 # dataloader options
 # batch size is dependent of augmentations, every batch will be wavs*(1+augmentations_count)
-batch_size: 128
+batch_size: 48 # 48 is about max on rtx2080
 number_of_epochs: 20
 num_workers: 14
 random_chunk: True # instead of fixed splits from every audio sample, pick random slice of correct len

@@ -1,54 +1,124 @@
 import math
 import logging
+import random
 import sys
+import os
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from ray import tune
-from ray.tune import CLIReporter, run_experiments
+from ray.tune import CLIReporter, run_experiments, Callback
 from ray.tune.schedulers import PopulationBasedTraining
 from ray.tune.integration.pytorch_lightning import TuneReportCallback, TuneReportCheckpointCallback
 from hyperpyyaml import load_hyperpyyaml
 from utils import parse_arguments
+import ECAPA_TDNN
+from data import VoxCeleb2Dataset
+from main import SpeakerDataModule, EcapaTdnnModule
+from pytorch_lightning.plugins import DDPPlugin
 
 logger = logging.getLogger(__name__)
 
 
-def train_tune_checkpoint():
-    pass
+def train_tune_checkpoint(config, hparams, checkpoint_dir=None):
+    print("train_tune_checkpoint", config)
+
+    data = SpeakerDataModule(hparams)
+
+    trainer = pl.Trainer(
+        default_root_dir=hparams["data_folder"],
+        gpus=-1,  # use all
+        max_epochs=hparams["number_of_epochs"],
+        logger=TensorBoardLogger(
+            save_dir=tune.get_trial_dir(), name="", version="."),
+        progress_bar_refresh_rate=20,
+        num_sanity_val_steps=0,
+        precision=16,
+        # accelerator='ddp',
+        # plugins=DDPPlugin(find_unused_parameters=False),
+        callbacks=[
+            TuneReportCheckpointCallback(
+                metrics={
+                    "loss": "ptl/val_loss",
+                    "mean_accuracy": "ptl/val_accuracy"
+                },
+                filename="checkpoint",
+                on="validation_end")
+        ]
+    )
+
+    if checkpoint_dir:
+        # Currently, this leads to errors:
+        # model = LightningMNISTClassifier.load_from_checkpoint(
+        #     os.path.join(checkpoint, "checkpoint"))
+
+        # Workaround:
+        """
+        ckpt = pl_load(
+            os.path.join(checkpoint_dir, "checkpoint"),
+            map_location=lambda storage, loc: storage)
+        model = LightningMNISTClassifier._load_model_state(
+            ckpt, config=config, data_dir=data_dir)
+        trainer.current_epoch = ckpt["epoch"]
+        """
+        model = EcapaTdnnModule.load_from_checkpoint(os.path.join(checkpoint_dir, "checkpoint"), hparams=hparams,
+                                                     out_neurons=data.get_label_count())
+    else:
+        model = EcapaTdnnModule(hparams=hparams, out_neurons=data.get_label_count())
+
+    trainer.fit(model, data)
+
+
+def explore(config):
+    config["augmentation_policy"] = config["augmentation_policy"] + 1
+    print("explore function called", config)
+    return config
+
+
+class MyCallback(Callback):
+    def on_trial_result(self, iteration, trials, trial, result,
+                        **info):
+        trial.config.update(result['config'])
+        print(f"Got result: {result}")
+
 
 def main_tune(hparams):
     pbt = PopulationBasedTraining(
-        time_attr="training_iteration",
-        reward_attr="val_acc",
-        perturbation_interval=2,
-        custom_explore_fn=None,  # this is the thing
-        log_config = True
+        time_attr="training_iteration",  # epoch count
+        perturbation_interval=1,  # after what every time unit of time_attr to perturb
+        metric="loss",
+        mode="min",
+        custom_explore_fn=explore,  # this is the thing
+        log_config=True
     )
 
     reporter = CLIReporter(
-        parameter_columns=["lr"],
+        parameter_columns=[],
         metric_columns=["loss", "mean_accuracy", "training_iteration"])
-
 
     analysis = tune.run(
         tune.with_parameters(
             train_tune_checkpoint,
-            num_epochs=20,
-            num_gpus=1),
+            hparams=hparams
+        ),
 
         resources_per_trial={
             "cpu": 2,
-            "gpu": 1
+            "gpu": 0.5
         },
-        metric="loss",
-        mode="min",
+
+        # callbacks=[MyCallback()],
+
         scheduler=pbt,
-        rogress_reporter=reporter,
-        name="tune_ecapa_tdnn"
+        num_samples=2,  # population size
+        progress_reporter=reporter,
+        name="tune_ecapa_tdnn",
+        config={
+            "augmentation_policy": 0
+        }
     )
 
-    print("Best augmentation schedules found were: ", analysis.best_config)
+    print("Best augmentation schedules found were: ", analysis)
 
 
 def main():

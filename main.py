@@ -171,6 +171,9 @@ class EcapaTdnnModule(pl.LightningModule):
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log('train_acc', acc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
+        self.log("ptl/train_loss", loss)
+        self.log("ptl/train_accuracy", acc)
+
         return {'loss': loss, 'acc': acc}
 
     def validation_step(self, batch, batch_idx):
@@ -189,7 +192,12 @@ class EcapaTdnnModule(pl.LightningModule):
         self.log('avg_val_loss', avg_val_loss, on_epoch=True, prog_bar=True, logger=True)
         self.log('avg_val_acc', avg_val_acc, on_epoch=True, prog_bar=True, logger=True)
 
+        # info for ray
+        self.log("ptl/val_loss", avg_val_loss, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/val_accuracy", avg_val_acc, on_epoch=True, prog_bar=True, logger=True)
+
         logger.info(f"avg_val_loss: {avg_val_loss} avg_val_acc: {avg_val_acc}")
+
         return {'val_loss': avg_val_loss}
 
 

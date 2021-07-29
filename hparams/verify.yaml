@@ -1,5 +1,5 @@
 # model to use for verifying
-verify_model_checkpoint: !ref <data_folder>/lightning_logs/version_39/checkpoints/epoch=19-step=99779.ckpt
+verify_model_checkpoint: !ref <data_folder>/lightning_logs/version_0/checkpoints/epoch=2-step=2843.ckpt
 # score_norm: 's-norm' # z-norm t-norm s-norm none
 cohort_size: 10 # should be lower than train size
 device: cuda:0

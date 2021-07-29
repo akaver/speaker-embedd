@@ -13,28 +13,6 @@ from hyperpyyaml import load_hyperpyyaml
 
 logger = logging.getLogger(__name__)
 
-"""
-        data_folder_voxceleb1,
-        data_folder_voxceleb2,
-        save_folder,
-        test_pairs_in_file=None,
-        test_pairs_out_file=None,
-        splits=["train", "dev", "test"],
-        split_ratio=90,
-        seg_dur=3.0,
-        amp_th=5e-04,
-        split_speaker=False,
-        random_segment=False,
-        skip_prep=False,
-        train_csv ="train.csv",
-        valid_csv ="valid.csv",
-        enrol_csv ="enrol.csv",
-        test_csv ="test.csv",
-        file_info="file_info.pkl",
-        speaker_quantity=None,
-        test_pairs_quantity=None
-"""
-
 
 def prepare_voxceleb(hparams):
     """
