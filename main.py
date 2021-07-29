@@ -154,7 +154,7 @@ class EcapaTdnnModule(pl.LightningModule):
 
     def model_step(self, batch, batch_idx):
         inputs, labels, ids = batch
-        labels_predicted = self(inputs)  # calls forward
+        labels_predicted, embedding = self(inputs)  # calls forward
         loss = self.compute_cost(labels_predicted, labels)
 
         labels_predicted_squeezed = labels_predicted.squeeze()
