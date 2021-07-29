@@ -226,11 +226,11 @@ def main():
 
     trainer = pl.Trainer(
         default_root_dir=hparams["data_folder"],
-            gpus=1,
+        gpus=-1,
         max_epochs=hparams["number_of_epochs"],
         # num_sanity_val_steps=0
-        # accelerator='ddp',
-        # plugins=DDPPlugin(find_unused_parameters=False)
+        accelerator='ddp',
+        plugins=DDPPlugin(find_unused_parameters=False)
     )
 
     trainer.fit(model, data)
