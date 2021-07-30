@@ -11,6 +11,7 @@ from pytorch_lightning.plugins import DDPPlugin
 from torchmetrics.functional import accuracy
 import ECAPA_TDNN
 from data import VoxCeleb2Dataset
+import augment
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,8 @@ class EcapaTdnnModule(pl.LightningModule):
         # naming conflict?
         self._hparams = hparams
 
+        print(self._hparams)
+
         self.out_neurons = out_neurons
 
         # embedding size
@@ -107,11 +110,15 @@ class EcapaTdnnModule(pl.LightningModule):
         self.compute_cost = ECAPA_TDNN.LogSoftmaxWrapper(loss_fn=ECAPA_TDNN.AdditiveAngularMargin(margin=0.2, scale=30))
         # not used
         self.compute_error = ECAPA_TDNN.classification_error
+        self.stage = None
+        self.n_augment = 1
 
     def prepare_data(self):
         pass
 
     def setup(self, stage):
+        logger.info(f"Setup stage {stage}")
+        self.stage = stage
         pass
 
     # Use for inference only (separate from training_step)
@@ -123,16 +130,35 @@ class EcapaTdnnModule(pl.LightningModule):
         wavs_aug_tot = []
         wavs_aug_tot.append(wavs)
 
-
-        # TODO - apply augmentations here!
         self.n_augment = 1
 
+        if self.stage == "fit":
+            if "augmentations" in self._hparams:
+                for _, augmentation in enumerate(self.hparams['augmentations']):
+                    wavs_augmented = getattr(augment, augmentation)(wavs)
 
-        wavs = torch.cat(wavs_aug_tot, dim=0)
+                    # Managing speed change - ie lenght of audio was changed. cut down or pad
+                    if wavs_augmented.shape[1] > wavs.shape[1]:
+                        wavs_augmented = wavs_augmented[:, 0: wavs.shape[1]]
+                    else:
+                        zero_sig = torch.zeros_like(wavs)
+                        zero_sig[:, 0: wavs_augmented.shape[1]] = wavs_augmented
+                        wavs_augmented = zero_sig
+
+                    if "concat_augment" in self.hparams and self.hparams["concat_augment"]:
+                        # collect the augmentations
+                        wavs_aug_tot.append(wavs_augmented)
+                    else:
+                        # replace the original audio - ie next augmentation is applied on top of it
+                        wavs = wavs_augmented
+                        wavs_aug_tot[0] = wavs
+
+            wavs = torch.cat(wavs_aug_tot, dim=0)
+            self.n_augment = len(wavs_aug_tot)
+
         lens = torch.cat([lens] * self.n_augment)
 
-
-        # extract features - fliterbanks from mfcc
+        # extract features - filterbanks from mfcc
         features = self.compute_features(wavs)
 
         # normalize
@@ -155,6 +181,11 @@ class EcapaTdnnModule(pl.LightningModule):
     def model_step(self, batch, batch_idx):
         inputs, labels, ids = batch
         labels_predicted, embedding = self(inputs)  # calls forward
+
+        # multiple the labels by  appended augmentations count
+        if self.stage == 'fit':
+            labels = torch.cat([labels] * self.n_augment, dim=0)
+
         loss = self.compute_cost(labels_predicted, labels)
 
         labels_predicted_squeezed = labels_predicted.squeeze()

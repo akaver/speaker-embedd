@@ -16,12 +16,18 @@ import ECAPA_TDNN
 from data import VoxCeleb2Dataset
 from main import SpeakerDataModule, EcapaTdnnModule
 from pytorch_lightning.plugins import DDPPlugin
+import augment
 
 logger = logging.getLogger(__name__)
 
 
 def train_tune_checkpoint(config, hparams, checkpoint_dir=None):
+    # send the augmentations to model pipeline
+    hparams['augmentations'] = config['augmentations']
+
+
     print("train_tune_checkpoint", config)
+
 
     data = SpeakerDataModule(hparams)
 
@@ -69,11 +75,6 @@ def train_tune_checkpoint(config, hparams, checkpoint_dir=None):
     trainer.fit(model, data)
 
 
-def explore(config):
-    config["augmentation_policy"] = config["augmentation_policy"] + 1
-    print("explore function called", config)
-    return config
-
 
 class MyCallback(Callback):
     def on_trial_result(self, iteration, trials, trial, result,
@@ -83,6 +84,19 @@ class MyCallback(Callback):
 
 
 def main_tune(hparams):
+
+    def sample_augmentations():
+        # how many augmentations to choose
+        aug_count = random.randint(hparams["augmentations_min"], hparams["augmentations_max"])
+        # random sampling without replacement
+        sample = random.sample(hparams["augmentation_functions"], k=aug_count)
+        return sample
+
+    def explore(config):
+        config["augmentations"] = sample_augmentations()
+        return config
+
+
     pbt = PopulationBasedTraining(
         time_attr="training_iteration",  # epoch count
         perturbation_interval=1,  # after what every time unit of time_attr to perturb
@@ -95,6 +109,7 @@ def main_tune(hparams):
     reporter = CLIReporter(
         parameter_columns=[],
         metric_columns=["loss", "mean_accuracy", "training_iteration"])
+
 
     analysis = tune.run(
         tune.with_parameters(
@@ -114,8 +129,10 @@ def main_tune(hparams):
         progress_reporter=reporter,
         name="tune_ecapa_tdnn",
         config={
-            "augmentation_policy": 0
+            "augmentations": tune.sample_from(sample_augmentations)  # generate initial schedule step (dynamic)
         }
+
+
     )
 
     print("Best augmentation schedules found were: ", analysis)

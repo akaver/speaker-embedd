@@ -2,7 +2,7 @@ skip_prep: False
 
 seed: 1986
 
-base_folder: /mnt/ml-stuff2 # /mnt/ml-stuff2 # /data in docker
+base_folder: /data # /mnt/ml-stuff2 # /data in docker
 
 # generated data splits, checkpoints, etc
 data_folder: !ref <base_folder>/voxdata
@@ -59,7 +59,30 @@ amp_th: 0.0005 # 5e-04
 
 # dataloader options
 # batch size is dependent of augmentations, every batch will be wavs*(1+augmentations_count)
-batch_size: 16
+batch_size: 4
 number_of_epochs: 5
 num_workers: 6
 random_chunk: True # instead of fixed splits from every audio sample, pick random slice of correct len
+
+
+# uniform distribution, how many aug functions to apply on every epoch
+augmentations_min: 1
+augmentations_max: 6
+
+concat_augment: True # makes batch bigger (no of augmentation applied)+1 times, watch GPU Memory and batch size
+
+# list of aug functions to choose from
+augmentation_functions: [
+  add_background_noise_white_noise_20db,
+  change_volume_up_20db,
+  change_volume_down_20db,
+  clicks_every_half_second_10db,
+  pitch_shift_up_2_steps,
+  pitch_shift_down_2_steps,
+  reverb,
+  speed_up_10,
+  speed_down_10,
+  time_stretch_up_10,
+  time_stretch_down_10,
+]
+
