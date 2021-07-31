@@ -66,8 +66,8 @@ random_chunk: True # instead of fixed splits from every audio sample, pick rando
 
 
 # uniform distribution, how many aug functions to apply on every epoch
-augmentations_min: 1
-augmentations_max: 6
+augmentations_min: 0
+augmentations_max: 2
 
 concat_augment: True # makes batch bigger (no of augmentation applied)+1 times, watch GPU Memory and batch size
 

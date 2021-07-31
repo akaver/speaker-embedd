@@ -25,9 +25,7 @@ def train_tune_checkpoint(config, hparams, checkpoint_dir=None):
     # send the augmentations to model pipeline
     hparams['augmentations'] = config['augmentations']
 
-
     print("train_tune_checkpoint", config)
-
 
     data = SpeakerDataModule(hparams)
 
@@ -49,31 +47,18 @@ def train_tune_checkpoint(config, hparams, checkpoint_dir=None):
                     "mean_accuracy": "ptl/val_accuracy"
                 },
                 filename="checkpoint",
-                on="validation_end")
+                on="validation_end")  # corresponds to the validation_epoch_end in lightning?
         ]
     )
 
     if checkpoint_dir:
-        # Currently, this leads to errors:
-        # model = LightningMNISTClassifier.load_from_checkpoint(
-        #     os.path.join(checkpoint, "checkpoint"))
-
-        # Workaround:
-        """
-        ckpt = pl_load(
+        model = EcapaTdnnModule.load_from_checkpoint(
             os.path.join(checkpoint_dir, "checkpoint"),
-            map_location=lambda storage, loc: storage)
-        model = LightningMNISTClassifier._load_model_state(
-            ckpt, config=config, data_dir=data_dir)
-        trainer.current_epoch = ckpt["epoch"]
-        """
-        model = EcapaTdnnModule.load_from_checkpoint(os.path.join(checkpoint_dir, "checkpoint"), hparams=hparams,
-                                                     out_neurons=data.get_label_count())
+            hparams=hparams, out_neurons=data.get_label_count())
     else:
         model = EcapaTdnnModule(hparams=hparams, out_neurons=data.get_label_count())
 
     trainer.fit(model, data)
-
 
 
 class MyCallback(Callback):
@@ -84,7 +69,6 @@ class MyCallback(Callback):
 
 
 def main_tune(hparams):
-
     def sample_augmentations():
         # how many augmentations to choose
         aug_count = random.randint(hparams["augmentations_min"], hparams["augmentations_max"])
@@ -96,20 +80,23 @@ def main_tune(hparams):
         config["augmentations"] = sample_augmentations()
         return config
 
-
     pbt = PopulationBasedTraining(
         time_attr="training_iteration",  # epoch count
         perturbation_interval=1,  # after what every time unit of time_attr to perturb
-        metric="loss",
-        mode="min",
-        custom_explore_fn=explore,  # this is the thing
-        log_config=True
+        # metric="loss", mode="min",
+        metric="mean_accuracy", mode="max",
+        custom_explore_fn=explore,  # called to produce the new augmentations perturbation
+        log_config=True,
+        # let the population to finish on same epoch, when next iteration start we have bigger space to choose from
+        # since we use different number of augmentations, models will complete epoch on different duration
+        synch=True,
+        # copy top half to bottom half
+        quantile_fraction=0.5
     )
 
     reporter = CLIReporter(
         parameter_columns=[],
         metric_columns=["loss", "mean_accuracy", "training_iteration"])
-
 
     analysis = tune.run(
         tune.with_parameters(
@@ -119,19 +106,19 @@ def main_tune(hparams):
 
         resources_per_trial={
             "cpu": 2,
-            "gpu": 0.5
+            "gpu": 1.0 / 3.0
         },
 
         # callbacks=[MyCallback()],
 
         scheduler=pbt,
-        num_samples=2,  # population size
+        num_samples=3,  # population size
+        # how many times to train the full model, we perturb the augmentations on every model.epoch
         progress_reporter=reporter,
         name="tune_ecapa_tdnn",
         config={
             "augmentations": tune.sample_from(sample_augmentations)  # generate initial schedule step (dynamic)
         }
-
 
     )
 

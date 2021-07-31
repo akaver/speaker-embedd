@@ -231,6 +231,10 @@ class EcapaTdnnModule(pl.LightningModule):
 
         return {'val_loss': avg_val_loss}
 
+    def on_train_start(self) -> None:
+        print(f"on_train_start{self.stage}")
+        if "augmentations" in self._hparams:
+            print(self._hparams["augmentations"])
 
 def main():
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
