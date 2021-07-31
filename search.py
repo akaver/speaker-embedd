@@ -20,6 +20,7 @@ import augment
 
 logger = logging.getLogger(__name__)
 
+os.environ["SLURM_JOB_NAME"] = "bash"
 
 def train_tune_checkpoint(config, hparams, checkpoint_dir=None):
     # send the augmentations to model pipeline
@@ -118,14 +119,14 @@ def main_tune(hparams):
         ),
 
         resources_per_trial={
-            "cpu": 2,
-            "gpu": 0.5
+            "cpu": 4,
+            "gpu": 1
         },
 
         # callbacks=[MyCallback()],
 
         scheduler=pbt,
-        num_samples=2,  # population size
+        num_samples=15,  # population size
         progress_reporter=reporter,
         name="tune_ecapa_tdnn",
         config={
