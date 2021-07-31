@@ -227,6 +227,10 @@ class EcapaTdnnModule(pl.LightningModule):
         self.log("ptl/val_loss", avg_val_loss, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/val_accuracy", avg_val_acc, on_epoch=True, prog_bar=True, logger=True)
 
+        # TODO, implement calculations on test set
+        self.log("ptl/EER", avg_val_acc + 1, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/minDCF", avg_val_acc + 2, on_epoch=True, prog_bar=True, logger=True)
+
         logger.info(f"avg_val_loss: {avg_val_loss} avg_val_acc: {avg_val_acc}")
 
         return {'val_loss': avg_val_loss}
@@ -235,6 +239,7 @@ class EcapaTdnnModule(pl.LightningModule):
         print(f"on_train_start{self.stage}")
         if "augmentations" in self._hparams:
             print(self._hparams["augmentations"])
+
 
 def main():
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
